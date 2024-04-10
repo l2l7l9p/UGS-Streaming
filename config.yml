@@ -1,0 +1,7 @@
+n: 100
+edgelistfile: edge_list.csv
+edgelistmode: local
+epsilon: 2
+k: 4
+batch_size: 20000
+target: 100
