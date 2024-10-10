@@ -1,7 +1,8 @@
-n: 100
-edgelistfile: edge_list.csv
+n: 6
+edgelistfile: edge_list_sample.csv
 edgelistmode: local
-epsilon: 2
+ddordermode: approx-heuristic
+epsilon: 0.5
 k: 4
-batch_size: 20000
 target: 100
+MAX_EDGES: 10000

@@ -1,65 +1,115 @@
-## streaming.py
+# UGS-Streaming
 
-This is the code for sampling a graphlet of size $k$ uniformly in a large graph of $n$ vertices in a  streaming manner. 
+This is the streaming algorithm for Uniform Graphlet Sampling.
 
-To run the code, first install the following packages for running the code:
+# Main Code
 
-- pyspark (necessary for the `DataFrame` mode)
+## main.py
 
-- pyyaml  (which is used to read configuration from a yml file. If you cannot install pyyaml, you just need to use the third line of the main function instead of the first line.)
+This is the code for sampling a graphlet of size $k$ uniformly in a large undirected graph of $n$ vertices in a streaming manner. 
 
-Then, prepare for the edge list file and `config.yml` where you set the parameters, and put them in the same directory with the code. The parameters are:
+To run the code, first install the following packages:
+
+- pyspark (Only necessary for the `DataFrame` mode)
+
+- pyyaml
+
+- numpy
+
+Then, prepare for the edge list file and the configuration `config.yml`, and put them in the same directory with the code. The edge list file should be in the following format (a header followed by all edges) and not contain loops or duplicated edges:
+
+```
+u,v
+x1,y1
+x2,y2
+x3,y3
+...
+xm,ym
+```
+
+The parameters in `config.yml` are:
 
 - `n`: the number of vertices,
 
-- `edgelistfile`: the path of the edge list file,
+- `edgelistfile`: the name of the edge list file,
 
-- `edgelistmode`: the mode of storing the edge list which has three choices:
+- `edgelistmode`: the mode of storing the edge list which has four choices:
   
-  - `local`: The code reads the edges from the local file regarding it as a streaming source. Everything except the edge list is stored in the main memory. We assume the main memory is $O(nk)$.
+  - `local`: The code reads the edges from the local file regarding it as a streaming source. Everything except the edge list is stored in the main memory. We assume the main memory is $O(nk^2)$.
   
-  - `DataFrame`: The code iterates the edges from Spark DataFrame regarding it as a streaming source. We assume that the driver node has $O(nk)$ memory. Large data (e.g., edge list of size $O(n^2)$) is stored in the form of Spark DataFrame so that it is distributed, while small data (e.g., the vertex list of size $O(n)$ or $O(nk)$) is stored in the driver's memory.
+  - `DataFrame`: The code iterates the edges from Spark DataFrame regarding it as a streaming source. We assume that the driver node has $O(nk^2)$ memory. Large data (e.g., edge list of size $O(n^2)$) is stored in the form of Spark DataFrame so that it is distributed, while small data (e.g., the vertex list of size $O(n)$ or $O(nk)$) is stored in the driver's memory.
   
   - `StreamingDataFrame` (TODO): The code iterates the edges from Spark StreamingDataFrame.
   
   - `memory`: The code stores everything (including the edge list) in main memory.
 
-- `epsilon`: the parameter for DD-ordering,
+- `ddordermode`: choose an of the following algorithms to compute the DD order,
+  
+  - `approx`
+  
+  - `approx-heuristic`
+
+- `epsilon`: the parameter for DD-order,
 
 - `k`: the parameter for graphlet sampling,
 
-- `batch_size`: the number of samplings we do in parallel (i.e., within two passes for Algorithm 3),
+- `target`: we do sampling in batches until there are `target` successful trials.
 
-- `target`: we do sampling in batches (each batch of size `batch_size`) until there are `target` successful trials.
+- `MAX_EDGES`: the maximum number of edges we store during the computation of DD-order and sampling. We will perform sampling with a batch size `MAX_EDGES/(k*k)`.
+
+- (optional) `ddorderfile`: a binary file containing a list representing the DD-order, so that we do not compute it again.
 
 Finally, run:
 
 ```
-python streaming.py
+python main.py
 ```
 
 If `edgelistmode` is `DataFrame`, you may also run the code by:
 
 ```
-spark-submit streaming.py 
+spark-submit main.py 
 ```
 
-It will print the logs on the terminal as well as to the file `logs.log` in the same directory with the code.
+It will print the logs on the terminal and produce the following three files:
 
-## experiment.py
+- `logs.log`: the logs.
 
-This is the script for experiments. It produces data we need, storing it in `data.log` and drawing a figure. Detail logs are printed on the terminate so that you can see the progress of running.
+- `DD_order.bin`: the DD-order which is a list of size `n`. Use `pickle.load()` to recover it. (This file is produced only when `ddorderfile` is NOT specified in the config.)
 
-It takes two arguments, the first of which is the test mode and the second is the experiment ID (let it be `id`). Default parameters are specified in `config<id>.yml`. It outputs the logging information to `logs<id>.log` and data to `data<id>.log`. (e.g., if `id` is `1`, the config file is `config1.yml` and it produces `logs1.log` and `data1.log`.)
+- `samples.bin`: the sampling results which is a nested list of shape `target*k`. Use `pickle.load()` to recover it.
 
-For example,
+# Other Tools
+
+## testspark.py
+
+This is the code for testing the Spark environment. It reads the edge list from the file `edge_list.csv` and calculates the degree of vertices.
+
+To run it on the personal computer, a cleaner way is to install pyspark (through pip or conda), JVM (usually by install JAVA) and Hadoop, and set the environment variables correctly. You may follow the documentation:
+
+- [PySpark Overview — PySpark 3.5.0 documentation](https://spark.apache.org/docs/latest/api/python/index.html) The instruction of installation and quick start.
+
+Then, run
 
 ```
-python experiment.py ddordering 1
-python experiment.py sampling 2
+python testspark.py
 ```
 
-Note: use `logging.info()` to print logs and `data_logger.info()` to store data.
+or
+
+```
+spark-submit testspark.py
+```
+
+The edge list should be in the same directory named as `edge_list.csv`.
+
+To run it on a cluster, you may need to install Spark completely and other dependent environments (e.g., python, HDFS). You may follow the documentation:
+
+- [Cluster Mode Overview - Spark 3.5.0 Documentation](https://spark.apache.org/docs/latest/cluster-overview.html) An introduction to the cluster mode of Spark.
+
+- [Spark Standalone Mode - Spark 3.5.0 Documentation](https://spark.apache.org/docs/latest/spark-standalone.html) Standalone mode, one of the cluster mode that is claimed to be easy to use.
+
+- [Submitting Applications - Spark 3.5.0 Documentation](https://spark.apache.org/docs/latest/submitting-applications.html) An instruction of submitting the code to the cluster.
 
 ## gen_edge.cpp
 
@@ -92,3 +142,15 @@ For example,
 ```
 python reformat.py out.edit-biwikibooks edge_list.csv
 ```
+
+## probability.py
+
+This is to print the probability of each $k$-graphlet in a log file.
+
+The code takes one argument as the binary file containing the sampling result (for example, `samples.bin`). Then, run
+
+```
+python probability.py samples.bin
+```
+
+It will produce a file `probability.txt` showing the probability of each $k$-graphlet in the log file.
