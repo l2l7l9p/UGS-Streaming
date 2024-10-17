@@ -1,14 +1,12 @@
 # UGS-Streaming
 
-This is the streaming algorithm for Uniform Graphlet Sampling.
+This is the streaming algorithm for Uniform Graphlet Sampling. Specifically, it samples graphlets of size $k$ uniformly in a large undirected graph of $n$ vertices in a streaming manner. 
 
 # Main Code
 
 ## main.py
 
-This is the code for sampling a graphlet of size $k$ uniformly in a large undirected graph of $n$ vertices in a streaming manner. 
-
-To run the code, first install the following packages:
+First install the following packages:
 
 - pyspark (Only necessary for the `DataFrame` mode)
 
@@ -145,7 +143,7 @@ python reformat.py out.edit-biwikibooks edge_list.csv
 
 ## probability.py
 
-This is to print the probability of each $k$-graphlet in a log file.
+This is to print the $k$-graphlet distribution of the sample results so that you can check its uniformity.
 
 The code takes one argument as the binary file containing the sampling result (for example, `samples.bin`). Then, run
 
@@ -153,4 +151,4 @@ The code takes one argument as the binary file containing the sampling result (f
 python probability.py samples.bin
 ```
 
-It will produce a file `probability.txt` showing the probability of each $k$-graphlet in the log file.
+It will produce a file `probability.txt` showing the probability of each $k$-graphlet in `samples.bin`.

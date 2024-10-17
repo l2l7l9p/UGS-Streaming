@@ -42,13 +42,13 @@ class Query() :
         self.cnt = [0]*(len(self.v_list)+1)
     
     def build_queries_for_v(self, degree_duGv, DD_order) :
-        self.num_index = [0]+[degree_duGv[(DD_order[v], self.u)] for v in reversed(self.v_list)]
+        self.num_index = [degree_duGv[(DD_order[v], self.u)] for v in self.v_list]+[0]
         self.queries_for_v = [[] for v in self.v_list]
         vi = 0
         for q in sorted(list(self.queries), reverse=True) :
-            while vi+1<len(self.v_list) and q<=self.num_index[-(vi+2)] :
+            while vi+1<len(self.v_list) and q<=self.num_index[vi+1] :
                 vi += 1
-            self.queries_for_v[vi].append(q)
+            self.queries_for_v[vi].append(q-self.num_index[vi+1])
         self.queries = None
 
 
@@ -129,31 +129,13 @@ class Graph() :
                 edges[y].append(x)
         self.PEEL_bruteforce(vertices, edges, heap, threshold_lb, degree)
     
-    def PEEL_faster(self, vertices, edges, threshold, p) :
-        if threshold<1 :
-            logging.debug('*** (threshold<1)')
-            self.DD_order.extend(vertices)
-            vertices.clear()
-        elif p>=1 :
-            degree = {v:len(edges[v]) for v in vertices}
-            heap = [(-degree[v],v) for v in vertices]
-            heapq.heapify(heap)
-            self.PEEL_bruteforce(vertices, edges, heap, -1, degree)
-        else :
-            for v in edges.keys() :
-                if v in vertices :
-                    edges[v] -= set(self.DD_order)
-                    if len(edges[v])>=threshold*p :
-                        self.DD_order.append(v)
-                        vertices.remove(v)
-    
     def remove_isolated_vertices(self, vertices, vertices_isolated, degree) :
         transfer = {v for v in vertices if degree[v]==0}
         vertices -= transfer
         vertices_isolated.extend(transfer)
         logging.debug('*** Remove %d isolated vertices', len(transfer))
     
-    def compute_DD_order(self, epsilon, mode, c=None) :
+    def compute_DD_order(self, epsilon, mode) :
         logging.info('Computing approx DD-ordering...')
         
         vertices = set(range(1, self.n+1))
@@ -161,9 +143,6 @@ class Graph() :
         degree_G = np.zeros(self.n+1, dtype=int)
         self.get_degree_G(vertices, degree_G)
         alpha = epsilon/2
-        epsilon_hat = epsilon/(4+3*epsilon)
-        T = math.log(self.n, 1+epsilon/2)
-        g = max(int(c*T),1)
         
         while vertices:
             if 'heuristic' in mode:
@@ -184,14 +163,14 @@ class Graph() :
                         prefix_ind = i
                         break
                 degree_dvGRv = None
-                
+                # decide if we run heuristic
                 max_degree = -vertex_list[0][0]
-                threshold_lb = max_degree/(1+alpha) if 'approx' in mode else max_degree/pow(1+epsilon/2,g)
+                threshold_lb = max_degree/(1+alpha)
                 if (prefix_ind==len(vertex_list) or (-vertex_list[prefix_ind][0])<=threshold_lb) :
                     logging.info('** PEEL_heuristic for %d vertices, max degree %d, select %d vertices', len(vertices), max_degree, prefix_ind)
                     self.PEEL_heuristic(vertices, vertex_list[0:prefix_ind], degree_G,
                                     ((-vertex_list[prefix_ind][0])/(1+epsilon) if prefix_ind<len(vertex_list) else 0) )
-                    self.get_degree_G(vertices)
+                    self.get_degree_G(vertices, degree_G)
                     self.remove_isolated_vertices(vertices, vertices_isolated, degree_G)
                     continue
             
@@ -199,55 +178,19 @@ class Graph() :
                 max_degree = degree_G.max()
                 logging.info('** PEEL_approx for %d vertices, max degree %d', len(vertices), max_degree)
                 self.PEEL_approx(vertices, degree_G, epsilon, alpha, max_degree)
-                self.remove_isolated_vertices(vertices, vertices_isolated, degree_G)
             
-            if 'faster' in mode:
-                max_degree = degree_G.max()
-                logging.debug('*** faster-mode sampling for %d vertices, max degree bounded by %d', len(vertices), max_degree)
-                G = [{} for j in range(g)]
-                Delta = [max_degree/pow(1+epsilon/2,j) for j in range(g)]
-                p = [min(min(3*(1+epsilon)*math.log(200*len(vertices)*T)/(epsilon_hat*epsilon_hat),1000)/Delta[j], 1) for j in range(g)]
-                # p = [min(3*(1+epsilon)*math.log(200*len(vertices)*T)/(epsilon_hat*epsilon_hat*Delta[j]), 1) for j in range(g)]
-                while g>1 and p[g-1]>=1 and p[g-2]>=1 :
-                    g -= 1
-                logging.debug('*** g=%d, p: %s',g, p)
-                degree_G.fill(0)
-                cnt_edges = 0
-                for x, y in self.edge_list.get_edge() :
-                    if x in vertices and y in vertices :
-                        degree_G[x] += 1
-                        degree_G[y] += 1
-                        for j in range(g) :
-                            if random.random()<=p[j] :
-                                if x in G[j] :
-                                    G[j][x].add(y)
-                                else :
-                                    G[j][x] = {y}
-                            if random.random()<=p[j] :
-                                if y in G[j] :
-                                    G[j][y].add(x)
-                                else :
-                                    G[j][y] = {x}
-                                cnt_edges += 1
-                max_degree = degree_G.max()
-                self.remove_isolated_vertices(vertices, vertices_isolated, degree_G)
-                
-                logging.info('** PEEL_faster for %d vertices, max degree %d (bounded by %d), edges %d', len(vertices), max_degree, Delta[0], cnt_edges)
-                for i in range(g) :
-                    if not vertices:
-                        break
-                    self.PEEL_faster(vertices,G[i],Delta[i]/(1+3*epsilon/4),p[i])
-                max_degree /= pow(1+epsilon/2,g)
+            self.remove_isolated_vertices(vertices, vertices_isolated, degree_G)
         
         self.DD_order.extend(vertices_isolated)
     
-    def get_degree_dvGv(self, k) :
-        degree, light_edge_list, last_heavy = np.zeros(self.n+1, dtype=int), [[] for x in range(self.n+1)], [-1]*(self.n+1)
+    def get_b(self, k) :
+        # compute d(v|G(v))
+        degree_dvGv, light_edge_list, last_heavy = np.zeros(self.n+1, dtype=int), [[] for x in range(self.n+1)], [-1]*(self.n+1)
         for x, y in self.edge_list.get_edge() :
             if (self.DD_ranking[x]>self.DD_ranking[y]) :
                 x, y = y, x
-            degree[x] += 1
-            if degree[x]<=k-2 :
+            degree_dvGv[x] += 1
+            if degree_dvGv[x]<=k-2 :
                 light_edge_list[x].append(y)
             else :
                 last_heavy[x] = self.DD_ranking[x]
@@ -256,9 +199,8 @@ class Graph() :
                         last_heavy[z]=max(last_heavy[z], self.DD_ranking[x])
                     light_edge_list[x] = None
                 last_heavy[y]=max(last_heavy[y], self.DD_ranking[x])
-        return degree, light_edge_list, last_heavy
-    
-    def get_b(self, degree_dvGv, light_edge_list, last_heavy, k) :
+        
+        # compute b[v] <- d(v|G(v))^{k-1} if the bucket of v is not empty, otherwise 0
         b = [0]*(self.n+1)
         dsu = DSU(self.n, last_heavy)
         for i in range(self.n-1, -1, -1) :
@@ -271,31 +213,29 @@ class Graph() :
                 b[x] = pow(int(degree_dvGv[x]),k-1)
         return b
     
-    def sampling_preprocess(self, k, epsilon, ddorder = None, DD_order_mode = 'faster', c = 0.1) :
+    def sampling_preprocess(self, k, epsilon, ddorder = None, DD_order_mode = 'approx-heuristic') :
         if ddorder is None :
-            self.compute_DD_order(epsilon, DD_order_mode, c)
+            self.compute_DD_order(epsilon, DD_order_mode)
             logging.info('Number of passes for DD-ordering = %s', self.edge_list.passes)
         else :
             self.DD_order = ddorder
         logging.info('Sampling preprocessing...')
         self.DD_ranking = np.empty(self.n+1, dtype=int)
         self.DD_ranking[self.DD_order] = np.arange(self.n)
-        degree_dvGv, light_edge_list, last_heavy = self.get_degree_dvGv(k)
-        b = self.get_b(degree_dvGv, light_edge_list, last_heavy, k)
-        degree_dvGv, light_edge_list, last_heavy = None, None, None
+        b = self.get_b(k)
         Z = sum(b)
         self.p = [b[x]/Z for x in range(self.n+1)]
         self.Gamma = 1/(math.factorial(k-1)*Z*pow(1+epsilon,k-1))
+        logging.debug('*** max(p) = %f', max(self.p))
     
-    def get_degree_duGv(self, v, samples) :
+    def get_degree_duGv(self, samples) :
         L, edges_internal = {}, set()
-        batch_size = len(samples)
-        edges_internal_queries = {(x,y) for j in range(batch_size) for x in samples[j] for y in samples[j] if x<y}
-        for j in range(batch_size) :
-            for u in samples[j] :
+        edges_internal_queries = {(x,y) for sample in samples for x in sample for y in sample if x<y}
+        for sample in samples :
+            for u in sample :
                 if not (u in L) :
                     L[u] = Query(u)
-                L[u].v_list.add(self.DD_ranking[v[j]])
+                L[u].v_list.add(self.DD_ranking[sample[0]])
         for u, Lu in L.items() :
             Lu.build_cnt()
         for x, y in self.edge_list.get_edge() :
@@ -330,11 +270,11 @@ class Graph() :
     def RAND_GROW_fast(self, v, k, batch_size) :
         samples = [[v[i]] for i in range(batch_size)]
         for i in range(2,k+1) :
-            degree_duGv, sampled_edges_tot = self.get_degree_duGv(v, samples)
+            degree_duGv, edges_internal = self.get_degree_duGv(samples)
             L, original_query, answers, up  = {}, [None]*batch_size, {}, np.zeros(batch_size, dtype=int)
             # set up queries
             for j in range(batch_size) :
-                degree_duS = {x: sum(1 for y in samples[j] if (x,y) in sampled_edges_tot or (y,x) in sampled_edges_tot) for x in samples[j]}
+                degree_duS = {x: sum(1 for y in samples[j] if (x,y) in edges_internal or (y,x) in edges_internal) for x in samples[j]}
                 u = random.choices(samples[j], weights=[degree_duGv[(v[j], u)]-degree_duS[u] for u in samples[j]])[0]
                 up[j] = u
                 original_query[j] = random.sample(range(1, degree_duGv[(v[j], u)]+1), degree_duS[u]+1)
@@ -342,7 +282,7 @@ class Graph() :
                     L[u] = Query(u)
                 L[u].v_list.add(self.DD_ranking[v[j]])
                 L[u].queries.update(original_query[j])
-            sampled_edges_tot = None
+            edges_internal = None
             # move queries to right v
             for u, Lu in L.items() :
                 Lu.build_cnt()
@@ -356,7 +296,7 @@ class Graph() :
                         if it>-1 :
                             L[x].cnt[it] += 1
                             q = L[x].queries_for_v[it]
-                            while len(q)>0 and q[-1]==L[x].cnt[it]+L[x].num_index[-(it+2)] :
+                            while len(q)>0 and q[-1]==L[x].cnt[it]+L[x].num_index[it+1] :
                                 answers[(x,q[-1])] = y
                                 q.pop()
             L = None
@@ -371,17 +311,17 @@ class Graph() :
         return samples
     
     def PROB(self, v, samples, k, batch_size) :
-        degree_duGv, sampled_edges_tot = self.get_degree_duGv(v, samples)
+        degree_duGv, edges_internal = self.get_degree_duGv(samples)
         for j in range(batch_size) :
             # compute the probability of samples[j], storing it in q[-1]
-            sampled_edge_list = {(x,y) for x in samples[j] for y in samples[j] if (x,y) in sampled_edges_tot}
+            sampled_edge_list = {(x,y) for x in samples[j] for y in samples[j] if (x,y) in edges_internal}
             samples_j = samples[j][1:k]
             q = [1]+[0]*((1<<(k-1))-1)
             for S in range(1<<(k-1)) :
                 Sset = {samples_j[x] for x in next_bit(S,k)}.union({v[j]})
+                ci = sum(degree_duGv[(v[j],u)] for u in Sset)-2*sum(1 for e in sampled_edge_list if e[0] in Sset and e[1] in Sset)
                 for x in next_bit(S^(-1),k-1) :
-                    ci = sum(degree_duGv[(v[j],u)] for u in Sset)-2*sum(1 for e in sampled_edge_list if e[0] in Sset and e[1] in Sset)
-                    ni = sum(1 for e in sampled_edge_list if e[0]==samples_j[x] and e[1] in Sset or e[1]==samples_j[x] and e[0] in Sset)
+                    ni = sum(1 for y in Sset if (samples_j[x],y) in sampled_edge_list or (y,samples_j[x]) in sampled_edge_list)
                     q[S|(1<<x)] += q[S]*ni/ci
             
             if random.random()>self.Gamma/(self.p[v[j]]*q[-1]) :

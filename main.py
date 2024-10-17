@@ -8,7 +8,7 @@ def load_yaml() :
 
 if __name__ == '__main__' :
     args = load_yaml()
-    logging.basicConfig(level=logging.DEBUG,
+    logging.basicConfig(level=logging.INFO,
                         handlers=[logging.FileHandler('logs.log'), logging.StreamHandler(sys.stdout)],
                         format="[%(asctime)s %(levelname)s] %(message)s")
     
@@ -23,8 +23,7 @@ if __name__ == '__main__' :
         graph.sampling_preprocess(args['k'], args['epsilon'], ddorder)
     else :
         # preprocess by computing a dd-order
-        c = args['fasterc'] if 'faster' in args['ddordermode'] else 0.1
-        graph.sampling_preprocess(args['k'], args['epsilon'], None, args['ddordermode'], c)
+        graph.sampling_preprocess(args['k'], args['epsilon'], None, args['ddordermode'])
         with open('DD_order.bin','wb') as f:
             pickle.dump(graph.DD_order, f)
     passes_for_preprocess = graph.edge_list.passes
